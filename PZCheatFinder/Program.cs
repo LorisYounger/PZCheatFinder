@@ -4,12 +4,27 @@
     {
         static void Main(string[] args)
         {
-            Console.WriteLine("僵毁等级挂检测工具 by LorisYounger");
+            Console.WriteLine("僵毁等级挂检测工具 by LorisYounger v1.1");
             Console.WriteLine("github: https://github.com/LorisYounger/PZCheatFinder");
 
-            Console.WriteLine("请输入 PerkLog 文件路径 eg: F:\\Zomboid\\log\\10-01-24_03-54-36_PerkLog.txt");
+            Console.WriteLine("请输入 PerkLog 文件/文件夹路径 eg: F:\\Zomboid\\log\\10-01-24_03-54-36_PerkLog.txt");
             var path = Console.ReadLine().Trim('"');
-            List<Data> data = File.ReadAllLines(path).Select(Data.Parse).ToList();
+            List<Data> data;
+            if (File.Exists(path))
+            {
+                data = File.ReadAllLines(path).Select(Data.Parse).Where(x => x != null).ToList();
+            }
+            else if (Directory.Exists(path))
+            {
+                data = Directory.GetFiles(path, "*_PerkLog.txt", SearchOption.AllDirectories).SelectMany(x => File.ReadAllLines(x).Select(Data.Parse).Where(x => x != null)).ToList();
+            }
+            else
+            {
+                Console.WriteLine("文件/文件夹不存在");
+                Console.ReadKey();
+                Main(args);
+                return;
+            }
             AnalyzeData(data);
             Console.WriteLine($"分析完成, 总计数据:{data.Count} 若为空结果则说明没有开等级挂的, 并不代表其他情况");
             Console.WriteLine("若分析出疑似开挂的人, 也有可能是管理员给与的等级或者奖励或者误差, 还请在日志中复查");
@@ -18,8 +33,8 @@
             Console.WriteLine("AD:杨远洛里斯服务器 QQ:929180788");
             Console.WriteLine("按任意键退出");
             Console.ReadKey();
+            Main(args);
         }
-
         public static void AnalyzeData(List<Data> dataList)
         {
             // 使用字典存储每个玩家的等级变化和上次等级变化的时间
@@ -111,34 +126,58 @@
         {
             return input.StartsWith("Created Player") || input == "Login" || input == "Died";
         }
-        public static Data Parse(string input)
+#nullable enable
+        public static bool useSRJ = false; // 是否使用SRJ的日志格式
+        public static Data? Parse(string input)
         {
-            var parts = input.Split(new[] { '[', ']' }).ToList().FindAll(x => !string.IsNullOrWhiteSpace(x) && x != ".");
-            Data data = new Data();
-            data.Date = DateTime.ParseExact(parts[0], "yy-MM-dd HH:mm:ss.fff", null);
-            data.Id = parts[1];
-            data.Name = parts[2];
-            data.Position = parts[3];
-            data.HoursSurvived = int.Parse(parts[parts.Count - 1].Split(':')[1]);
+            if (input.Contains("[SRJ START READING]"))
+            {
+                if (input.Contains("(forceStop)") || input.Contains("(stop)"))
+                {
+                    useSRJ = false;
+                }
+                else
+                {
+                    useSRJ = true;
+                }
+                return null;
+            }
+            if (useSRJ)
+                return null;
+            try
+            {
+                var parts = input.Split(new[] { '[', ']' }).ToList().FindAll(x => !string.IsNullOrWhiteSpace(x) && x != ".");
+                Data data = new Data();
+                data.Date = DateTime.ParseExact(parts[0], "dd-MM-yy HH:mm:ss.fff", null);
+                data.Id = parts[1];
+                data.Name = parts[2];
+                data.Position = parts[3];
+                data.HoursSurvived = int.Parse(parts[parts.Count - 1].Split(':')[1]);
 
 
-            if (IsEvent(parts[4]))
-            {
-                data.DataType = parts[4];
-            }
-            else if (parts[4] == "Level Changed" && parts.Count > 6)
-            {
-                data.DataType = "Level Changed";
-                data.LevelChangeType = parts[5];
-                data.LevelChangeValue = int.Parse(parts[6]);
-            }
-            else if (parts.Count > 4)
-            {
-                data.DataType = "Initial Data";
-                data.InitialData = ParseInitialData(parts[4]);
-            }
+                if (IsEvent(parts[4]))
+                {
+                    data.DataType = parts[4];
+                }
+                else if (parts[4] == "Level Changed" && parts.Count > 6)
+                {
+                    data.DataType = "Level Changed";
+                    data.LevelChangeType = parts[5];
+                    data.LevelChangeValue = int.Parse(parts[6]);
+                }
+                else if (parts.Count > 4)
+                {
+                    data.DataType = "Initial Data";
+                    data.InitialData = ParseInitialData(parts[4]);
+                }
 
-            return data;
+                return data;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"解析数据失败: {input}, 错误: {ex.Message}");
+                return null;
+            }
         }
 
         private static Dictionary<string, int> ParseInitialData(string initialData)
